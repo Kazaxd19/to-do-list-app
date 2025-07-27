@@ -1,5 +1,4 @@
-# to-do-list-app
-A personal task manager application created for my AI course.
+
 # יומן משימות (PRO)
 
 זוהי אפליקציית Web לניהול משימות אישיות שנוצרה כפרויקט גמר בקורס "מבוא לכלי בינה מלאכותית".
