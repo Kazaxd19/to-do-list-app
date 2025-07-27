@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>יומן משימות PRO</title>
+    
+    <!-- Loading Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts for a clean look -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- NEW: Tone.js for sound effects -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+
+    <style>
+        body { font-family: 'Assistant', sans-serif; }
+        .completed { text-decoration: line-through; color: #9ca3af; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-in { animation: fadeIn 0.3s ease-out forwards; }
+        @keyframes fadeOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.9); } }
+        .fade-out { animation: fadeOut 0.3s ease-in forwards; }
+        .filter-btn-active { background-color: #3b82f6 !important; color: white !important; }
+
+        /* --- NEW: Priority and Due Date Styles --- */
+        .priority-dot { width: 10px; height: 10px; border-radius: 50%; }
+        .priority-low { background-color: #22c55e; } /* green-500 */
+        .priority-normal { background-color: #eab308; } /* yellow-500 */
+        .priority-high { background-color: #ef4444; } /* red-500 */
+        .is-overdue .task-text { color: #ef4444; font-weight: bold; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-100 to-yellow-100 min-h-screen">
+
+    <div class="container mx-auto max-w-2xl mt-10 p-4">
+        
+        <div class="bg-white rounded-xl shadow-2xl p-6">
+            
+            <header class="flex items-center justify-center gap-3 text-center mb-6">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                <h1 class="text-3xl font-bold text-gray-800">יומן המשימות שלי</h1>
+            </header>
+
+            <form id="task-form" class="flex gap-2 mb-4">
+                <input type="text" id="task-input" placeholder="הקלד/י משימה חדשה..." class="flex-grow p-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 transition" required>
+                <button type="submit" class="bg-blue-500 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-600 transition-colors shadow-md">הוסף</button>
+            </form>
+
+            <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
+                <div id="filter-buttons" class="flex justify-center gap-2">
+                    <button data-filter="all" class="filter-btn filter-btn-active px-4 py-1 text-sm bg-gray-200 text-gray-700 rounded-full hover:bg-gray-300">הכל</button>
+                    <button data-filter="active" class="filter-btn px-4 py-1 text-sm bg-gray-200 text-gray-700 rounded-full hover:bg-gray-300">פעילות</button>
+                    <button data-filter="completed" class="filter-btn px-4 py-1 text-sm bg-gray-200 text-gray-700 rounded-full hover:bg-gray-300">הושלמו</button>
+                </div>
+                <!-- NEW: Clear Completed Button -->
+                <button id="clear-completed-btn" class="text-sm text-red-500 hover:text-red-700 hover:underline">נקה משימות שהושלמו</button>
+            </div>
+
+            <div id="task-list" class="space-y-3"></div>
+
+            <footer class="mt-6 pt-4 border-t border-gray-200 text-center">
+                <p id="task-counter" class="text-gray-600"></p>
+            </footer>
+        </div>
+
+        <div class="text-center mt-6 text-sm text-gray-600">
+            <p>פותח על ידי קלויאן דימיטרוב בעזרת בינה מלאכותית</p>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Element Selection ---
+        const taskForm = document.getElementById('task-form');
+        const taskInput = document.getElementById('task-input');
+        const taskList = document.getElementById('task-list');
+        const taskCounter = document.getElementById('task-counter');
+        const filterButtons = document.getElementById('filter-buttons');
+        const clearCompletedBtn = document.getElementById('clear-completed-btn'); // NEW
+
+        // --- State Management ---
+        let tasks = JSON.parse(localStorage.getItem('todoAppTasks')) || [];
+        let currentFilter = 'all';
+
+        // --- NEW: Sound Effect Setup ---
+        const synth = new Tone.Synth({
+            oscillator: { type: 'sine' },
+            envelope: { attack: 0.005, decay: 0.1, sustain: 0.3, release: 1 }
+        }).toDestination();
+
+        function playCompleteSound() {
+            // Start Tone.js audio context on user interaction
+            if (Tone.context.state !== 'running') {
+                Tone.start();
+            }
+            synth.triggerAttackRelease("C5", "8n");
+        }
+
+        // --- Core Functions ---
+        function saveTasks() {
+            localStorage.setItem('todoAppTasks', JSON.stringify(tasks));
+        }
+
+        function renderTasks() {
+            taskList.innerHTML = '';
+            const filteredTasks = tasks.filter(task => {
+                if (currentFilter === 'active') return !task.completed;
+                if (currentFilter === 'completed') return task.completed;
+                return true;
+            });
+
+            if (filteredTasks.length === 0) {
+                let message = "אין משימות להצגה. אפשר לנוח! 🎉";
+                if (currentFilter === 'active') message = "כל הכבוד, אין משימות פעילות!";
+                if (currentFilter === 'completed') message = "אף משימה עוד לא הושלמה.";
+                taskList.innerHTML = `<p class="text-gray-400 text-center">${message}</p>`;
+            } else {
+                filteredTasks.forEach(task => {
+                    const originalIndex = tasks.findIndex(t => t.id === task.id);
+                    const taskElement = document.createElement('div');
+                    
+                    // NEW: Check if task is overdue
+                    const isOverdue = task.dueDate && new Date(task.dueDate) < new Date().setHours(0,0,0,0);
+                    
+                    taskElement.className = `task-item flex flex-col p-3 bg-gray-50 rounded-lg transition-all duration-300 hover:shadow-md ${task.completed ? 'opacity-60' : ''} ${isOverdue && !task.completed ? 'border-r-4 border-red-500' : ''}`;
+                    taskElement.dataset.index = originalIndex;
+                    if (task.isNew) {
+                        taskElement.classList.add('fade-in');
+                        delete task.isNew;
+                    }
+
+                    if (task.isEditing) {
+                        taskElement.innerHTML = `
+                            <div class="flex items-center gap-2 w-full">
+                                <input type="text" value="${task.text}" class="edit-input-text flex-grow p-1 border-b-2 border-blue-500 focus:outline-none">
+                                <button data-index="${originalIndex}" class="save-btn text-green-500 hover:text-green-600"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg></button>
+                            </div>
+                            <div class="flex items-center justify-between gap-4 mt-2 w-full">
+                                <div class="flex items-center gap-2">
+                                    <label class="text-sm">עדיפות:</label>
+                                    <select class="edit-input-priority p-1 border rounded-md text-sm">
+                                        <option value="low" ${task.priority === 'low' ? 'selected' : ''}>נמוכה</option>
+                                        <option value="normal" ${task.priority === 'normal' ? 'selected' : ''}>רגילה</option>
+                                        <option value="high" ${task.priority === 'high' ? 'selected' : ''}>גבוהה</option>
+                                    </select>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <label class="text-sm">תאריך יעד:</label>
+                                    <input type="date" value="${task.dueDate || ''}" class="edit-input-date p-1 border rounded-md text-sm">
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        taskElement.innerHTML = `
+                            <div class="flex items-center justify-between w-full">
+                                <div class="flex items-center gap-3 flex-grow">
+                                    <input type="checkbox" data-index="${originalIndex}" class="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" ${task.completed ? 'checked' : ''}>
+                                    <p class="task-text ${task.completed ? 'completed' : ''} ${isOverdue && !task.completed ? 'is-overdue' : ''}">${task.text}</p>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button data-index="${originalIndex}" class="edit-btn text-gray-400 hover:text-blue-500"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.536L16.732 3.732z" /></svg></button>
+                                    <button data-index="${originalIndex}" class="delete-btn text-gray-400 hover:text-red-500"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-4 mt-2 text-xs text-gray-500 w-full">
+                                <div class="flex items-center gap-1">
+                                    <span class="priority-dot priority-${task.priority || 'normal'}"></span>
+                                    <span>עדיפות ${task.priority === 'low' ? 'נמוכה' : task.priority === 'high' ? 'גבוהה' : 'רגילה'}</span>
+                                </div>
+                                ${task.dueDate ? `
+                                <div class="flex items-center gap-1">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                    <span>${new Date(task.dueDate).toLocaleDateString('he-IL')}</span>
+                                </div>` : ''}
+                            </div>
+                        `;
+                    }
+                    taskList.appendChild(taskElement);
+                });
+            }
+            updateCounter();
+            updateFilterButtons();
+            updateClearButton();
+        }
+
+        function updateCounter() {
+            const activeTasksCount = tasks.filter(task => !task.completed).length;
+            taskCounter.textContent = activeTasksCount === 1 ? `נשארה לך משימה אחת` : `נשארו לך ${activeTasksCount} משימות`;
+        }
+
+        function updateFilterButtons() {
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('filter-btn-active');
+                if (btn.dataset.filter === currentFilter) btn.classList.add('filter-btn-active');
+            });
+        }
+        
+        // NEW: Show/hide clear button
+        function updateClearButton() {
+            const completedCount = tasks.filter(task => task.completed).length;
+            clearCompletedBtn.style.display = completedCount > 0 ? 'block' : 'none';
+        }
+
+        function addTask(text) {
+            tasks.unshift({ id: Date.now(), text: text, completed: false, isNew: true, priority: 'normal', dueDate: null });
+            saveTasks();
+            renderTasks();
+        }
+
+        function toggleTask(index) {
+            if (!tasks[index].completed) {
+                playCompleteSound();
+            }
+            tasks[index].completed = !tasks[index].completed;
+            saveTasks();
+            renderTasks();
+        }
+
+        function deleteTask(index) {
+            const taskElement = taskList.querySelector(`.task-item[data-index='${index}']`);
+            if (taskElement) {
+                taskElement.classList.add('fade-out');
+                setTimeout(() => {
+                    tasks.splice(index, 1);
+                    saveTasks();
+                    renderTasks();
+                }, 300);
+            }
+        }
+
+        function toggleEditMode(index) {
+            tasks.forEach((task, i) => task.isEditing = (i == index));
+            renderTasks();
+            const editInput = taskList.querySelector('.edit-input-text');
+            if (editInput) {
+                editInput.focus();
+                editInput.selectionStart = editInput.value.length;
+            }
+        }
+
+        // NEW: Updated save function
+        function saveEditedTask(index, newText, newPriority, newDueDate) {
+            tasks[index].text = newText;
+            tasks[index].priority = newPriority;
+            tasks[index].dueDate = newDueDate;
+            tasks[index].isEditing = false;
+            saveTasks();
+            renderTasks();
+        }
+
+        // --- Event Listeners ---
+        taskForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const taskText = taskInput.value.trim();
+            if (taskText) {
+                addTask(taskText);
+                taskInput.value = '';
+                taskInput.focus();
+            }
+        });
+
+        taskList.addEventListener('click', (e) => {
+            const target = e.target;
+            const taskItem = target.closest('.task-item');
+            if (!taskItem) return;
+            const index = taskItem.dataset.index;
+
+            if (target.closest('.delete-btn')) deleteTask(index);
+            else if (target.closest('.edit-btn')) toggleEditMode(index);
+            else if (target.closest('.save-btn')) {
+                const newText = taskItem.querySelector('.edit-input-text').value.trim();
+                const newPriority = taskItem.querySelector('.edit-input-priority').value;
+                const newDueDate = taskItem.querySelector('.edit-input-date').value;
+                if (newText) saveEditedTask(index, newText, newPriority, newDueDate);
+            }
+            else if (target.type === 'checkbox') toggleTask(index);
+        });
+        
+        taskList.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.target.closest('.task-item') && e.target.closest('.task-item').querySelector('.edit-input-text')) {
+                 e.preventDefault();
+                 const taskItem = e.target.closest('.task-item');
+                 const index = taskItem.dataset.index;
+                 const newText = taskItem.querySelector('.edit-input-text').value.trim();
+                 const newPriority = taskItem.querySelector('.edit-input-priority').value;
+                 const newDueDate = taskItem.querySelector('.edit-input-date').value;
+                 if (newText) saveEditedTask(index, newText, newPriority, newDueDate);
+            }
+        });
+
+        filterButtons.addEventListener('click', (e) => {
+            if (e.target.matches('.filter-btn')) {
+                currentFilter = e.target.dataset.filter;
+                renderTasks();
+            }
+        });
+        
+        // NEW: Event listener for clearing completed tasks
+        clearCompletedBtn.addEventListener('click', () => {
+            tasks = tasks.filter(task => !task.completed);
+            saveTasks();
+            renderTasks();
+        });
+
+        // --- Initial Load ---
+        document.addEventListener('DOMContentLoaded', renderTasks);
+    </script>
+</body>
+</html>
